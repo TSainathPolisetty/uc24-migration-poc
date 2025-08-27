@@ -1,0 +1,13 @@
+[Unit]
+Description=Mount Actual Target Root Agent
+DefaultDependencies=no
+After=initrd-root-fs.target
+Before=initrd-switch-root.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/mount-target-agent
+StandardOutput=journal+console
+
+[Install]
+WantedBy=initrd.target

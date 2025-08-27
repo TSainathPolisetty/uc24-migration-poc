@@ -1,0 +1,14 @@
+#!/bin/sh
+
+echo "[INFO] Mount Target Agent Starting" >> /run/mount-target.log
+
+mkdir -p /mnt/target-root
+mount /dev/sda2 /mnt/target-root
+
+if [ $? -eq 0 ]; then
+    echo "[SUCCESS] Mounted /dev/sda2 to /mnt/target-root" >> /run/mount-target.log
+    touch /mnt/target-root/initrd-touch.txt
+    echo "[INFO] Wrote test file to target root" >> /run/mount-target.log
+else
+    echo "[ERROR] Failed to mount /dev/sda2" >> /run/mount-target.log
+fi
