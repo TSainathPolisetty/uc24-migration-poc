@@ -1,0 +1,13 @@
+#!/bin/sh
+echo "[INFO] Running ephemeral root overlay agent" >> /run/ephemeral-root.log
+
+mkdir -p /mnt/overlay-root
+mount -t tmpfs tmpfs /mnt/overlay-root
+
+mkdir -p /mnt/overlay-root/upper /mnt/overlay-root/work /mnt/overlay-root/newroot
+
+mount -t overlay overlay \
+  -o lowerdir=/,upperdir=/mnt/overlay-root/upper,workdir=/mnt/overlay-root/work \
+  /mnt/overlay-root/newroot
+
+echo "[INFO] Overlay mounted at /mnt/overlay-root/newroot" >> /run/ephemeral-root.log
