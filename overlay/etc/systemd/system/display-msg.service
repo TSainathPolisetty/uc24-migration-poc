@@ -1,0 +1,13 @@
+[Unit]
+Description=Test Display Message
+DefaultDependencies=no
+After=initrd-root-fs.target
+Before=initrd-switch-root.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/display-msg.sh
+StandardOutput=journal+console
+
+[Install]
+WantedBy=initrd.target
