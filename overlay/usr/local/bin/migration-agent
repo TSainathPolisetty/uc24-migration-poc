@@ -1,0 +1,3 @@
+#!/bin/bash
+echo "Migration agent script running..." >> /run/migration.log
+# Placeholder for future migration logic
