@@ -1,0 +1,29 @@
+name: cascade-migration
+base: core24
+version: '0.1'
+summary: Snap delivering UC24 image for brownfield upgrade
+description: |
+  PoC snap to simulate a migration workflow using a UC24 image payload.
+
+grade: devel
+confinement: devmode
+
+parts:
+  # Image payload part
+  uc24-img:
+    plugin: dump
+    source: payloads/
+    organize:
+      uc24.img.xz: payloads/uc24.img.xz
+
+  # Snap logic part
+  migration:
+    plugin: dump
+    source: snap/
+    organize:
+      hooks/install: snap/hooks/install
+
+  xz-utils:
+    plugin: nil
+    stage-packages:
+      - xz-utils

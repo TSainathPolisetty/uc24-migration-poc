@@ -1,0 +1,20 @@
+#!/bin/sh
+set -e
+
+echo "[install] cascade-migration install hook started." >&2
+
+# Create directory inside SNAP_DATA 
+mkdir -p "$SNAP_DATA/payloads"
+
+# Copy the UC24 image from the snap into the persistent area
+cp -v "$SNAP/payloads/"* "$SNAP_DATA/payloads/"
+unxz "$SNAP_DATA/payloads/uc24.img.xz"
+
+# basic config file to SNAP_DATA
+cat > "$SNAP_DATA/migration.conf" <<EOF
+MIGRATE_CORE=true
+IMAGE=\$SNAP_DATA/payloads/uc24.img
+NETWORK_REQUIRED=true
+EOF
+
+echo "[install] Payload copied and config written." >&2
