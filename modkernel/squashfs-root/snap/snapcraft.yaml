@@ -1,0 +1,206 @@
+name: pc-kernel
+adopt-info: kernel
+grade: stable
+summary: Ubuntu generic kernel
+description: The Ubuntu generic kernel package as a snap
+source-code: https://git.launchpad.net/~canonical-kernel-snaps/canonical-kernel-snaps/+git/kernel-snaps-u24.04
+issues: https://bugs.launchpad.net/canonical-kernel-snaps/+filebug?field.tags=pc-kernel
+contact: https://answers.launchpad.net/canonical-kernel-snaps/+addquestion
+type: kernel
+confinement: strict
+build-base: core24
+
+platforms:
+  amd64:
+  arm64:
+
+components:
+  nvidia-550-erd-ko:
+    type: kernel-modules
+    summary: Nvidia 550-server kernel objects
+    description: Nvidia 550-server driver kernel objects for the Ubuntu generic kernel snap
+
+  nvidia-550-erd-user:
+    type: standard
+    summary: Nvidia 550-server userspace libraries
+    description: Userspace libraries required by the Nvidia 550-server driver for the Ubuntu generic kernel snap
+
+  nouveau-ko:
+    type: kernel-modules
+    summary: Nouveau kernel module
+    description: The Nouveau kernel module for the Ubuntu generic kernel snap
+
+parts:
+  kernel:
+    source: https://git.launchpad.net/canonical-kernel-snaps
+    source-type: git
+    source-branch: main
+    plugin: nil
+
+    build-packages:
+      - kmod
+
+    stage-packages:
+      - linux-image-uc-6.8.0-64-generic=6.8.0-64.67
+      - linux-modules-extra-6.8.0-64-generic=6.8.0-64.67
+      - linux-firmware
+      - wireless-regdb
+      - on amd64:
+        - firmware-sof-signed
+
+    override-build: |
+      craftctl default
+
+      # Determine version and 'uname -r'
+      unamer=$(basename "$CRAFT_PART_INSTALL"/lib/modules/*)
+      version="6.8.0-64.67"
+
+      # Set the snap package version
+      craftctl set version=$version
+
+      # Update depmod
+      /usr/sbin/depmod -b "$CRAFT_PART_INSTALL" "$unamer"
+
+      # Move nouveau out of the file tree
+      find "$CRAFT_PART_INSTALL" -name nouveau.ko.zst -exec mv '{}' "$CRAFT_PART_INSTALL" \;
+
+      # Move hooks to staging area so they can be picked up by organize
+      mv hooks/module/* "$CRAFT_PART_INSTALL"
+
+    organize:
+      # Organize nouveau into a dedicated component
+      nouveau.ko.zst: (component/nouveau-ko)/
+      install.module: (component/nouveau-ko)/snap/hooks/install
+      post-refresh.module: (component/nouveau-ko)/snap/hooks/post-refresh
+      remove.module: (component/nouveau-ko)/snap/hooks/remove
+
+    override-stage: |
+
+      # Determine 'uname -r'
+      unamer=$(basename "$CRAFT_PART_INSTALL"/lib/modules/*)
+
+      # Move modules
+      mv "$CRAFT_PART_INSTALL"/lib/modules "$CRAFT_PART_INSTALL"/
+
+      # Copy firmware
+      "$CRAFT_PART_SRC"/copy-firmware -m "$CRAFT_PART_INSTALL"/modules/"$unamer" -f "$CRAFT_PART_INSTALL"/lib/firmware \
+          "$CRAFT_PART_INSTALL"/_tmp
+      # Move the dtbs
+      if [ -d "$CRAFT_PART_INSTALL"/lib/firmware/"$unamer" ] ; then
+          mv "$CRAFT_PART_INSTALL"/lib/firmware/"$unamer" "$CRAFT_PART_INSTALL"/_tmp/lib/firmware/
+      fi
+      mv "$CRAFT_PART_INSTALL"/_tmp/lib/firmware "$CRAFT_PART_INSTALL"/
+
+      # Move boot files
+      mv "$CRAFT_PART_INSTALL"/boot/System.map-"$unamer" "$CRAFT_PART_INSTALL"/
+      mv "$CRAFT_PART_INSTALL"/boot/config-"$unamer" "$CRAFT_PART_INSTALL"/
+      mv "$CRAFT_PART_INSTALL"/boot/kernel.efi-"$unamer" "$CRAFT_PART_INSTALL"/kernel.efi
+      mv "$CRAFT_PART_INSTALL"/boot/snapd-info "$CRAFT_PART_INSTALL"/snapd-info
+
+      # Move docs
+      mv "$CRAFT_PART_INSTALL"/usr/share/doc "$CRAFT_PART_INSTALL"/
+
+      # Clean up remaining stage package files
+      rm -rf "$CRAFT_PART_INSTALL"/{_tmp,boot,lib,usr}
+
+      # Create compat symlink for installing headers on classic
+      ln -s /usr/src/linux-headers-"$unamer" "$CRAFT_PART_INSTALL"/modules/"$unamer"/build
+
+      # Create a mountpoint for firmware updates (LP: #2051144)
+      mkdir "$CRAFT_PART_INSTALL"/firmware/updates
+
+      craftctl default
+
+  # Kernel object component support requires a kernel.yaml file
+  # configured with dynamic-modules: $SNAP_DATA
+  files:
+    plugin: dump
+    source: files
+
+  nvidia-550-erd-ko-comp:
+    source: https://git.launchpad.net/canonical-kernel-snaps
+    source-type: git
+    source-branch: main
+    plugin: nil
+
+    stage-packages:
+      - binutils
+      - make
+
+    override-build: |
+      craftctl default
+      version=$(craftctl get version)
+
+      # Duplicate libc causing conflicts, deleting to use system's libc
+      rm -f -- "$CRAFT_PART_INSTALL/usr/lib/$(uname -m)-linux-gnu/libc.so.6"
+      apt-get download linux-objects-nvidia-550-server-"6.8.0-64"-generic="6.8.0-64.67" \
+          linux-signatures-nvidia-"6.8.0-64"-generic="6.8.0-64.67"
+      for i in *.deb; do dpkg-deb -x "$i" nvidia-objects ;  done
+
+      mkdir -p "$CRAFT_PART_INSTALL"/bits
+      mv nvidia-objects/lib/modules/*/kernel/nvidia-550srv/bits/* "$CRAFT_PART_INSTALL"/bits
+      # Move hooks
+      mv hooks/nvidia-ko/* "$CRAFT_PART_INSTALL"
+
+    organize:
+      bits/: (component/nvidia-550-erd-ko)/bits
+      usr/bin: (component/nvidia-550-erd-ko)/bin
+      usr/lib: (component/nvidia-550-erd-ko)/lib
+
+      install.nvidia-ko: (component/nvidia-550-erd-ko)/snap/hooks/install
+      post-refresh.nvidia-ko: (component/nvidia-550-erd-ko)/snap/hooks/post-refresh
+      remove.nvidia-ko: (component/nvidia-550-erd-ko)/snap/hooks/remove
+
+  nvidia-550-erd-user-comp:
+    source: https://git.launchpad.net/canonical-kernel-snaps
+    source-type: git
+    source-branch: main
+    plugin: nil
+
+    override-build: |
+      craftctl default
+
+      # Move hooks
+      mv hooks/nvidia-user/* "$CRAFT_PART_INSTALL"
+
+    stage-packages:
+      - libnvidia-egl-wayland1=1:1.1.13-1build1
+      - libnvidia-cfg1-550-server=550.163.01-0ubuntu0.24.04.1
+      - libnvidia-common-550-server=550.163.01-0ubuntu0.24.04.1
+      - libnvidia-compute-550-server=550.163.01-0ubuntu0.24.04.1
+      - libnvidia-decode-550-server=550.163.01-0ubuntu0.24.04.1
+      - libnvidia-encode-550-server=550.163.01-0ubuntu0.24.04.1
+      - libnvidia-extra-550-server=550.163.01-0ubuntu0.24.04.1
+      - libnvidia-gl-550-server=550.163.01-0ubuntu0.24.04.1
+      - libnvidia-fbc1-550-server=550.163.01-0ubuntu0.24.04.1
+      - nvidia-utils-550-server=550.163.01-0ubuntu0.24.04.1
+      - xserver-xorg-video-nvidia-550-server=550.163.01-0ubuntu0.24.04.1
+      - libnvidia-extra-550-server=550.163.01-0ubuntu0.24.04.1
+
+
+    organize:
+      usr/share: (component/nvidia-550-erd-user)/usr/share
+      usr/lib: (component/nvidia-550-erd-user)/usr/lib
+      usr/bin/nvidia-smi: (component/nvidia-550-erd-user)/usr/bin/nvidia-smi
+      kernel-gpu-2404-provider-mangler: (component/nvidia-550-erd-user)/kernel-gpu-2404-provider-mangler
+      install.nvidia-user: (component/nvidia-550-erd-user)/snap/hooks/install
+      post-refresh.nvidia-user: (component/nvidia-550-erd-user)/snap/hooks/post-refresh
+      remove.nvidia-user: (component/nvidia-550-erd-user)/snap/hooks/remove
+
+  # Prune nvidia-550-erd-user to prevent shipping duplicate mesa libraries
+  nvidia-550-erd-user-cleanup:
+    after: [nvidia-550-erd-user-comp]
+    source: https://github.com/canonical/gpu-snap.git
+    plugin: dump
+    override-prime: |
+      craftctl default
+      CRAFT_PRIME="$CRAFT_COMPONENT_NVIDIA_550_ERD_USER_PRIME" \
+        "$CRAFT_PART_SRC"/bin/gpu-2404-cleanup mesa-2404
+
+
+
+slots:
+  kernel-gpu-2404:
+    interface: content
+    read:
+      - $SNAP_COMMON/kernel-gpu-2404

@@ -1,0 +1,343 @@
+snapcraft-version: 8.9.4
+snapcraft-started-at: '2025-06-23T14:39:43.234265Z'
+snapcraft-os-release-id: ubuntu
+snapcraft-os-release-version-id: '24.04'
+name: pc-kernel
+version: 6.8.0-64.67
+summary: Ubuntu generic kernel
+description: The Ubuntu generic kernel package as a snap
+base: null
+grade: stable
+confinement: strict
+apps: null
+parts:
+  kernel:
+    source: https://git.launchpad.net/canonical-kernel-snaps
+    source-type: git
+    source-branch: main
+    plugin: nil
+    build-packages:
+    - kmod
+    stage-packages:
+    - firmware-sof-signed=2023.12.1-1ubuntu1.5
+    - linux-firmware=20240318.git3b128b60-0ubuntu2.13
+    - linux-image-uc-6.8.0-64-generic=6.8.0-64.67
+    - linux-modules-6.8.0-64-generic=6.8.0-64.67
+    - linux-modules-extra-6.8.0-64-generic=6.8.0-64.67
+    - wireless-regdb=2024.10.07-0ubuntu2~24.04.1
+    override-build: |
+      craftctl default
+
+      # Determine version and 'uname -r'
+      unamer=$(basename "$CRAFT_PART_INSTALL"/lib/modules/*)
+      version="6.8.0-64.67"
+
+      # Set the snap package version
+      craftctl set version=$version
+
+      # Update depmod
+      /usr/sbin/depmod -b "$CRAFT_PART_INSTALL" "$unamer"
+
+      # Move nouveau out of the file tree
+      find "$CRAFT_PART_INSTALL" -name nouveau.ko.zst -exec mv '{}' "$CRAFT_PART_INSTALL" \;
+
+      # Move hooks to staging area so they can be picked up by organize
+      mv hooks/module/* "$CRAFT_PART_INSTALL"
+    organize:
+      nouveau.ko.zst: (component/nouveau-ko)/
+      install.module: (component/nouveau-ko)/snap/hooks/install
+      post-refresh.module: (component/nouveau-ko)/snap/hooks/post-refresh
+      remove.module: (component/nouveau-ko)/snap/hooks/remove
+    override-stage: |2
+
+      # Determine 'uname -r'
+      unamer=$(basename "$CRAFT_PART_INSTALL"/lib/modules/*)
+
+      # Move modules
+      mv "$CRAFT_PART_INSTALL"/lib/modules "$CRAFT_PART_INSTALL"/
+
+      # Copy firmware
+      "$CRAFT_PART_SRC"/copy-firmware -m "$CRAFT_PART_INSTALL"/modules/"$unamer" -f "$CRAFT_PART_INSTALL"/lib/firmware \
+          "$CRAFT_PART_INSTALL"/_tmp
+      # Move the dtbs
+      if [ -d "$CRAFT_PART_INSTALL"/lib/firmware/"$unamer" ] ; then
+          mv "$CRAFT_PART_INSTALL"/lib/firmware/"$unamer" "$CRAFT_PART_INSTALL"/_tmp/lib/firmware/
+      fi
+      mv "$CRAFT_PART_INSTALL"/_tmp/lib/firmware "$CRAFT_PART_INSTALL"/
+
+      # Move boot files
+      mv "$CRAFT_PART_INSTALL"/boot/System.map-"$unamer" "$CRAFT_PART_INSTALL"/
+      mv "$CRAFT_PART_INSTALL"/boot/config-"$unamer" "$CRAFT_PART_INSTALL"/
+      mv "$CRAFT_PART_INSTALL"/boot/kernel.efi-"$unamer" "$CRAFT_PART_INSTALL"/kernel.efi
+      mv "$CRAFT_PART_INSTALL"/boot/snapd-info "$CRAFT_PART_INSTALL"/snapd-info
+
+      # Move docs
+      mv "$CRAFT_PART_INSTALL"/usr/share/doc "$CRAFT_PART_INSTALL"/
+
+      # Clean up remaining stage package files
+      rm -rf "$CRAFT_PART_INSTALL"/{_tmp,boot,lib,usr}
+
+      # Create compat symlink for installing headers on classic
+      ln -s /usr/src/linux-headers-"$unamer" "$CRAFT_PART_INSTALL"/modules/"$unamer"/build
+
+      # Create a mountpoint for firmware updates (LP: #2051144)
+      mkdir "$CRAFT_PART_INSTALL"/firmware/updates
+
+      craftctl default
+    stage: []
+    prime: []
+  files:
+    plugin: dump
+    source: files
+    stage-packages: []
+    stage: []
+    prime: []
+    build-packages: []
+  nvidia-550-erd-ko-comp:
+    source: https://git.launchpad.net/canonical-kernel-snaps
+    source-type: git
+    source-branch: main
+    plugin: nil
+    stage-packages:
+    - binutils-common=2.42-4ubuntu2.5
+    - binutils-x86-64-linux-gnu=2.42-4ubuntu2.5
+    - binutils=2.42-4ubuntu2.5
+    - libbinutils=2.42-4ubuntu2.5
+    - libctf-nobfd0=2.42-4ubuntu2.5
+    - libctf0=2.42-4ubuntu2.5
+    - libgprofng0=2.42-4ubuntu2.5
+    - libjansson4=2.14-2build2
+    - libsframe1=2.42-4ubuntu2.5
+    - make=4.3-4.1build2
+    override-build: |
+      craftctl default
+      version=$(craftctl get version)
+
+      # Duplicate libc causing conflicts, deleting to use system's libc
+      rm -f -- "$CRAFT_PART_INSTALL/usr/lib/$(uname -m)-linux-gnu/libc.so.6"
+      apt-get download linux-objects-nvidia-550-server-"6.8.0-64"-generic="6.8.0-64.67" \
+          linux-signatures-nvidia-"6.8.0-64"-generic="6.8.0-64.67"
+      for i in *.deb; do dpkg-deb -x "$i" nvidia-objects ;  done
+
+      mkdir -p "$CRAFT_PART_INSTALL"/bits
+      mv nvidia-objects/lib/modules/*/kernel/nvidia-550srv/bits/* "$CRAFT_PART_INSTALL"/bits
+      # Move hooks
+      mv hooks/nvidia-ko/* "$CRAFT_PART_INSTALL"
+    organize:
+      bits/: (component/nvidia-550-erd-ko)/bits
+      usr/bin: (component/nvidia-550-erd-ko)/bin
+      usr/lib: (component/nvidia-550-erd-ko)/lib
+      install.nvidia-ko: (component/nvidia-550-erd-ko)/snap/hooks/install
+      post-refresh.nvidia-ko: (component/nvidia-550-erd-ko)/snap/hooks/post-refresh
+      remove.nvidia-ko: (component/nvidia-550-erd-ko)/snap/hooks/remove
+    stage: []
+    prime: []
+    build-packages: []
+  nvidia-550-erd-user-comp:
+    source: https://git.launchpad.net/canonical-kernel-snaps
+    source-type: git
+    source-branch: main
+    plugin: nil
+    override-build: |
+      craftctl default
+
+      # Move hooks
+      mv hooks/nvidia-user/* "$CRAFT_PART_INSTALL"
+    stage-packages:
+    - debconf=1.5.86ubuntu1
+    - keyboard-configuration=1.226ubuntu1
+    - libdrm-amdgpu1=2.4.122-1~ubuntu0.24.04.1
+    - libdrm-intel1=2.4.122-1~ubuntu0.24.04.1
+    - libdrm-radeon1=2.4.122-1~ubuntu0.24.04.1
+    - libegl-mesa0=24.2.8-1ubuntu1~24.04.1
+    - libegl1=1.7.0-1build1
+    - libepoxy0=1.5.10-1build1
+    - libfontenc1=1:1.1.8-1build1
+    - libgbm1=24.2.8-1ubuntu1~24.04.1
+    - libgl1-mesa-dri=24.2.8-1ubuntu1~24.04.1
+    - libgl1=1.7.0-1build1
+    - libglapi-mesa=24.2.8-1ubuntu1~24.04.1
+    - libglvnd0=1.7.0-1build1
+    - libglx-mesa0=24.2.8-1ubuntu1~24.04.1
+    - libglx0=1.7.0-1build1
+    - libice6=2:1.0.10-1build3
+    - libicu74=74.2-1ubuntu3.1
+    - libllvm19=1:19.1.1-1ubuntu1~24.04.2
+    - liblocale-gettext-perl=1.07-6ubuntu5
+    - libnvidia-cfg1-550-server=550.163.01-0ubuntu0.24.04.1
+    - libnvidia-common-550-server=550.163.01-0ubuntu0.24.04.1
+    - libnvidia-compute-550-server=550.163.01-0ubuntu0.24.04.1
+    - libnvidia-decode-550-server=550.163.01-0ubuntu0.24.04.1
+    - libnvidia-egl-wayland1=1:1.1.13-1build1
+    - libnvidia-encode-550-server=550.163.01-0ubuntu0.24.04.1
+    - libnvidia-extra-550-server=550.163.01-0ubuntu0.24.04.1
+    - libnvidia-fbc1-550-server=550.163.01-0ubuntu0.24.04.1
+    - libnvidia-gl-550-server=550.163.01-0ubuntu0.24.04.1
+    - libpixman-1-0=0.42.2-1build1
+    - libsensors-config=1:3.6.0-9build1
+    - libsensors5=1:3.6.0-9build1
+    - libsm6=2:1.2.3-1build3
+    - libunwind8=1.6.2-3build1.1
+    - libvulkan1=1.3.275.0-1build1
+    - libwayland-client0=1.22.0-2.1build1
+    - libwayland-server0=1.22.0-2.1build1
+    - libx11-6=2:1.8.7-1build1
+    - libx11-data=2:1.8.7-1build1
+    - libx11-xcb1=2:1.8.7-1build1
+    - libxau6=1:1.0.9-1build6
+    - libxaw7=2:1.0.14-1build2
+    - libxcb-dri2-0=1.15-1ubuntu2
+    - libxcb-dri3-0=1.15-1ubuntu2
+    - libxcb-glx0=1.15-1ubuntu2
+    - libxcb-present0=1.15-1ubuntu2
+    - libxcb-randr0=1.15-1ubuntu2
+    - libxcb-shm0=1.15-1ubuntu2
+    - libxcb-sync1=1.15-1ubuntu2
+    - libxcb-xfixes0=1.15-1ubuntu2
+    - libxcb1=1.15-1ubuntu2
+    - libxcvt0=0.1.2-1build1
+    - libxdmcp6=1:1.1.3-0ubuntu6
+    - libxext6=2:1.3.4-1build2
+    - libxfixes3=1:6.0.0-2build1
+    - libxfont2=1:2.0.6-1build1
+    - libxkbfile1=1:1.1.0-1build4
+    - libxml2=2.9.14+dfsg-1.3ubuntu3.3
+    - libxmu6=2:1.1.3-3build2
+    - libxpm4=1:3.5.17-1build2
+    - libxrandr2=2:1.5.2-2build1
+    - libxrender1=1:0.9.10-1.1build1
+    - libxshmfence1=1.3-1build5
+    - libxt6t64=1:1.2.1-1.2build1
+    - libxxf86vm1=1:1.1.4-1build4
+    - lsb-base=11.6
+    - mesa-libgallium=24.2.8-1ubuntu1~24.04.1
+    - nvidia-utils-550-server=550.163.01-0ubuntu0.24.04.1
+    - perl-base=5.38.2-3.2ubuntu0.1
+    - x11-common=1:7.7+23ubuntu3
+    - x11-xkb-utils=7.7+8build2
+    - xserver-common=2:21.1.12-1ubuntu1.4
+    - xserver-xorg-core=2:21.1.12-1ubuntu1.4
+    - xserver-xorg-video-nvidia-550-server=550.163.01-0ubuntu0.24.04.1
+    organize:
+      usr/share: (component/nvidia-550-erd-user)/usr/share
+      usr/lib: (component/nvidia-550-erd-user)/usr/lib
+      usr/bin/nvidia-smi: (component/nvidia-550-erd-user)/usr/bin/nvidia-smi
+      kernel-gpu-2404-provider-mangler: (component/nvidia-550-erd-user)/kernel-gpu-2404-provider-mangler
+      install.nvidia-user: (component/nvidia-550-erd-user)/snap/hooks/install
+      post-refresh.nvidia-user: (component/nvidia-550-erd-user)/snap/hooks/post-refresh
+      remove.nvidia-user: (component/nvidia-550-erd-user)/snap/hooks/remove
+    stage: []
+    prime: []
+    build-packages: []
+  nvidia-550-erd-user-cleanup:
+    after:
+    - nvidia-550-erd-user-comp
+    source: https://github.com/canonical/gpu-snap.git
+    plugin: dump
+    override-prime: |
+      craftctl default
+      CRAFT_PRIME="/build/pc-kernel/partitions/component/nvidia-550-erd-user/prime" \
+        "$CRAFT_PART_SRC"/bin/gpu-2404-cleanup mesa-2404
+    stage-packages: []
+    stage: []
+    prime: []
+    build-packages: []
+architectures:
+- amd64
+image-info:
+  build-request-id: lp-99381264
+  build-request-timestamp: '2025-06-23T14:35:38Z'
+  build_url: https://launchpad.net/~canonical-kernel-team/+snap/noble--linux--pc-kernel--beta--1+2v/+build/2832985
+build-packages: []
+build-snaps: []
+primed-stage-packages:
+- binutils-common=2.42-4ubuntu2.5
+- binutils-x86-64-linux-gnu=2.42-4ubuntu2.5
+- binutils=2.42-4ubuntu2.5
+- debconf=1.5.86ubuntu1
+- firmware-sof-signed=2023.12.1-1ubuntu1.5
+- keyboard-configuration=1.226ubuntu1
+- libbinutils=2.42-4ubuntu2.5
+- libctf-nobfd0=2.42-4ubuntu2.5
+- libctf0=2.42-4ubuntu2.5
+- libdrm-amdgpu1=2.4.122-1~ubuntu0.24.04.1
+- libdrm-intel1=2.4.122-1~ubuntu0.24.04.1
+- libdrm-radeon1=2.4.122-1~ubuntu0.24.04.1
+- libegl-mesa0=24.2.8-1ubuntu1~24.04.1
+- libegl1=1.7.0-1build1
+- libepoxy0=1.5.10-1build1
+- libfontenc1=1:1.1.8-1build1
+- libgbm1=24.2.8-1ubuntu1~24.04.1
+- libgl1-mesa-dri=24.2.8-1ubuntu1~24.04.1
+- libgl1=1.7.0-1build1
+- libglapi-mesa=24.2.8-1ubuntu1~24.04.1
+- libglvnd0=1.7.0-1build1
+- libglx-mesa0=24.2.8-1ubuntu1~24.04.1
+- libglx0=1.7.0-1build1
+- libgprofng0=2.42-4ubuntu2.5
+- libice6=2:1.0.10-1build3
+- libicu74=74.2-1ubuntu3.1
+- libjansson4=2.14-2build2
+- libllvm19=1:19.1.1-1ubuntu1~24.04.2
+- liblocale-gettext-perl=1.07-6ubuntu5
+- libnvidia-cfg1-550-server=550.163.01-0ubuntu0.24.04.1
+- libnvidia-common-550-server=550.163.01-0ubuntu0.24.04.1
+- libnvidia-compute-550-server=550.163.01-0ubuntu0.24.04.1
+- libnvidia-decode-550-server=550.163.01-0ubuntu0.24.04.1
+- libnvidia-egl-wayland1=1:1.1.13-1build1
+- libnvidia-encode-550-server=550.163.01-0ubuntu0.24.04.1
+- libnvidia-extra-550-server=550.163.01-0ubuntu0.24.04.1
+- libnvidia-fbc1-550-server=550.163.01-0ubuntu0.24.04.1
+- libnvidia-gl-550-server=550.163.01-0ubuntu0.24.04.1
+- libpixman-1-0=0.42.2-1build1
+- libsensors-config=1:3.6.0-9build1
+- libsensors5=1:3.6.0-9build1
+- libsframe1=2.42-4ubuntu2.5
+- libsm6=2:1.2.3-1build3
+- libunwind8=1.6.2-3build1.1
+- libvulkan1=1.3.275.0-1build1
+- libwayland-client0=1.22.0-2.1build1
+- libwayland-server0=1.22.0-2.1build1
+- libx11-6=2:1.8.7-1build1
+- libx11-data=2:1.8.7-1build1
+- libx11-xcb1=2:1.8.7-1build1
+- libxau6=1:1.0.9-1build6
+- libxaw7=2:1.0.14-1build2
+- libxcb-dri2-0=1.15-1ubuntu2
+- libxcb-dri3-0=1.15-1ubuntu2
+- libxcb-glx0=1.15-1ubuntu2
+- libxcb-present0=1.15-1ubuntu2
+- libxcb-randr0=1.15-1ubuntu2
+- libxcb-shm0=1.15-1ubuntu2
+- libxcb-sync1=1.15-1ubuntu2
+- libxcb-xfixes0=1.15-1ubuntu2
+- libxcb1=1.15-1ubuntu2
+- libxcvt0=0.1.2-1build1
+- libxdmcp6=1:1.1.3-0ubuntu6
+- libxext6=2:1.3.4-1build2
+- libxfixes3=1:6.0.0-2build1
+- libxfont2=1:2.0.6-1build1
+- libxkbfile1=1:1.1.0-1build4
+- libxml2=2.9.14+dfsg-1.3ubuntu3.3
+- libxmu6=2:1.1.3-3build2
+- libxpm4=1:3.5.17-1build2
+- libxrandr2=2:1.5.2-2build1
+- libxrender1=1:0.9.10-1.1build1
+- libxshmfence1=1.3-1build5
+- libxt6t64=1:1.2.1-1.2build1
+- libxxf86vm1=1:1.1.4-1build4
+- linux-firmware=20240318.git3b128b60-0ubuntu2.13
+- linux-image-uc-6.8.0-64-generic=6.8.0-64.67
+- linux-modules-6.8.0-64-generic=6.8.0-64.67
+- linux-modules-extra-6.8.0-64-generic=6.8.0-64.67
+- lsb-base=11.6
+- make=4.3-4.1build2
+- mesa-libgallium=24.2.8-1ubuntu1~24.04.1
+- nvidia-utils-550-server=550.163.01-0ubuntu0.24.04.1
+- perl-base=5.38.2-3.2ubuntu0.1
+- wireless-regdb=2024.10.07-0ubuntu2~24.04.1
+- x11-common=1:7.7+23ubuntu3
+- x11-xkb-utils=7.7+8build2
+- xserver-common=2:21.1.12-1ubuntu1.4
+- xserver-xorg-core=2:21.1.12-1ubuntu1.4
+- xserver-xorg-video-nvidia-550-server=550.163.01-0ubuntu0.24.04.1

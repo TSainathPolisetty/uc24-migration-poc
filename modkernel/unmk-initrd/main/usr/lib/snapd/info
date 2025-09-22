@@ -1,0 +1,3 @@
+VERSION=2.70+g50.d4bfa73
+SNAPD_APPARMOR_REEXEC=1
+SNAPD_ASSERTS_FORMATS='{"account-key":1,"snap-declaration":6,"system-user":2}'

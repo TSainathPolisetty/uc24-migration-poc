@@ -1,0 +1,14 @@
+[Unit]
+Description=Migration Agent Test (initrd pre-pivot)
+DefaultDependencies=no
+After=initrd-root-fs.target
+Before=initrd-switch-root.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo "Migration agent test ran at $(date)" > /run/migration-agent-test.log'
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=initrd.target

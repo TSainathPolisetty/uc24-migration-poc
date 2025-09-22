@@ -1,0 +1,39 @@
+name: pc-kernel
+version: 6.8.0-64.67
+summary: Ubuntu generic kernel
+description: The Ubuntu generic kernel package as a snap
+type: kernel
+architectures:
+- amd64
+confinement: strict
+grade: stable
+environment:
+  LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/lib
+  PATH: $SNAP/usr/sbin:$SNAP/usr/bin:$SNAP/sbin:$SNAP/bin:$PATH
+slots:
+  kernel-gpu-2404:
+    interface: content
+    read:
+    - $SNAP_COMMON/kernel-gpu-2404
+links:
+  contact:
+  - https://answers.launchpad.net/canonical-kernel-snaps/+addquestion
+  issues:
+  - https://bugs.launchpad.net/canonical-kernel-snaps/+filebug?field.tags=pc-kernel
+  source-code:
+  - https://git.launchpad.net/~canonical-kernel-snaps/canonical-kernel-snaps/+git/kernel-snaps-u24.04
+components:
+  nvidia-550-erd-ko:
+    summary: Nvidia 550-server kernel objects
+    description: Nvidia 550-server driver kernel objects for the Ubuntu generic kernel
+      snap
+    type: kernel-modules
+  nvidia-550-erd-user:
+    summary: Nvidia 550-server userspace libraries
+    description: Userspace libraries required by the Nvidia 550-server driver for
+      the Ubuntu generic kernel snap
+    type: standard
+  nouveau-ko:
+    summary: Nouveau kernel module
+    description: The Nouveau kernel module for the Ubuntu generic kernel snap
+    type: kernel-modules
