@@ -1,12 +1,20 @@
 [Unit]
-Description=Migration Agent Test (initrd pre-pivot)
+Description=Migration Agent (initrd pre-pivot)
 DefaultDependencies=no
 After=initrd-root-fs.target
 Before=initrd-switch-root.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'echo "Migration agent test ran at $(date)" > /run/migration-agent-test.log'
+ExecStart=/bin/sh -c '\
+  echo "[migration-agent.service] Starting at $(date)" | tee -a /run/migration-agent.service.log; \
+  if [ ! -r /bin/migration-agent.sh ]; then \
+    echo "[migration-agent.service] ERROR: /bin/migration-agent.sh not found or not readable" | tee -a /run/migration-agent.service.log; \
+    exit 1; \
+  fi; \
+  /bin/migration-agent.sh 2>&1 | tee -a /run/migration-agent.service.log; \
+  echo "[migration-agent.service] Finished at $(date)" | tee -a /run/migration-agent.service.log \
+'
 StandardOutput=journal+console
 StandardError=journal+console
 
