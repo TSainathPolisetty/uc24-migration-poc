@@ -2,10 +2,20 @@
 set -eu
 
 LOG_TAG="[migration-agent]"
-log() { printf "%s %s\n" "$LOG_TAG" "$*" | tee -a /run/migration.log >/dev/kmsg; }
-fail() { printf "%s [ERROR] %s\n" "$LOG_TAG" "$*" | tee -a /run/migration.log >/dev/kmsg; exit 1; }
+LOG_FILE="/run/migration.log"
+log() { printf "%s %s\n" "$LOG_TAG" "$*" | tee -a "$LOG_FILE" >/dev/kmsg; }
+fail() { printf "%s [ERROR] %s\n" "$LOG_TAG" "$*" | tee -a "$LOG_FILE" >/dev/kmsg; exit 1; }
 
-# 1) Resolve block devices by label (no hardcoding /dev/vdX)
+log "=== Migration agent started at $(date) ==="
+
+# 0) Verify cascade-migration snap presence
+if [ ! -d "/writable/var/snap/cascade-migration" ] && [ ! -d "/var/snap/cascade-migration" ]; then
+    log "No cascade-migration snap found. Exiting without action."
+    exit 0
+fi
+log "cascade-migration snap detected."
+
+# 1) Resolve block devices by label
 SEED_DEV="$(blkid -L ubuntu-seed || true)"
 DATA_DEV="$(blkid -L ubuntu-data || true)"
 [ -n "$SEED_DEV" ] || fail "Device labeled 'ubuntu-seed' not found"
@@ -14,71 +24,72 @@ DATA_DEV="$(blkid -L ubuntu-data || true)"
 log "Seed device: $SEED_DEV"
 log "Data device: $DATA_DEV"
 
-# 2) Locate migration.conf placed by cascade-migration install hook
+# 2) Locate config
 SNAP_NAME="cascade-migration"
-if [ -n "${SNAP_DATA:-}" ]; then
-  CONF_PATH="$SNAP_DATA/migration.conf"
-else
-  # Typical UC paths pre/post pivot
-  if   [ -f "/writable/var/snap/$SNAP_NAME/current/migration.conf" ]; then
-    CONF_PATH="/writable/var/snap/$SNAP_NAME/current/migration.conf"
-  elif [ -f "/var/snap/$SNAP_NAME/current/migration.conf" ]; then
-    CONF_PATH="/var/snap/$SNAP_NAME/current/migration.conf"
-  else
-    fail "migration.conf not found under \$SNAP_DATA or /writable/var/snap/$SNAP_NAME/current/"
-  fi
-fi
+CONF_PATH=""
+for path in \
+    "${SNAP_DATA:-}" \
+    "/writable/var/snap/$SNAP_NAME/current" \
+    "/var/snap/$SNAP_NAME/current"
+do
+    if [ -n "$path" ] && [ -f "$path/migration.conf" ]; then
+        CONF_PATH="$path/migration.conf"
+        break
+    fi
+done
+[ -n "$CONF_PATH" ] || fail "migration.conf not found in SNAP_DATA or /var/snap paths"
 log "Using config: $CONF_PATH"
 
-# 3) Source config and gate on MIGRATE_CORE
-# shellcheck disable=SC1090
+# 3) Source config
 . "$CONF_PATH"
-if [ "${MIGRATE_CORE:-False}" != "True" ]; then
-  log "MIGRATE_CORE!=True, exiting without changes"
-  exit 0
-fi
-log "MIGRATE_CORE=True, proceeding"
+log "Config loaded: MIGRATE_CORE=${MIGRATE_CORE:-unset}, SEED_LOCATION=${SEED_LOCATION:-unset}"
 
-# 4) Mount ubuntu-data read-only at a private mountpoint
+if [ "${MIGRATE_CORE:-False}" != "True" ]; then
+    log "MIGRATE_CORE!=True → no migration performed."
+    exit 0
+fi
+log "MIGRATE_CORE=True → migration will proceed."
+
+# 4) Mount ubuntu-data
 DATA_MNT="/run/migration-data"
 mkdir -p "$DATA_MNT"
 if ! mountpoint -q "$DATA_MNT"; then
-  mount -o ro "$DATA_DEV" "$DATA_MNT" || fail "Mount $DATA_DEV at $DATA_MNT failed"
+    mount -o ro "$DATA_DEV" "$DATA_MNT" || fail "Mount $DATA_DEV at $DATA_MNT failed"
 fi
+log "Mounted $DATA_DEV at $DATA_MNT"
 
-# 5) Resolve image path on ubuntu-data (default /migration/uc24.img)
+# 5) Resolve image path
 IMG_REL_DEFAULT="/migration/uc24.img"
 if [ -n "${SEED_LOCATION:-}" ]; then
-  case "$SEED_LOCATION" in
-    /*) IMG_PATH="$DATA_MNT$SEED_LOCATION" ;;
-    *)  IMG_PATH="$DATA_MNT/$SEED_LOCATION" ;;
-  esac
+    case "$SEED_LOCATION" in
+        /*) IMG_PATH="$DATA_MNT$SEED_LOCATION" ;;
+        *)  IMG_PATH="$DATA_MNT/$SEED_LOCATION" ;;
+    esac
 else
-  IMG_PATH="$DATA_MNT$IMG_REL_DEFAULT"
+    IMG_PATH="$DATA_MNT$IMG_REL_DEFAULT"
 fi
 [ -f "$IMG_PATH" ] || fail "Target image not found: $IMG_PATH"
-log "Image: $IMG_PATH"
+log "Image found: $IMG_PATH"
 
-# 6) Size checks: ensure image fits in ubuntu-seed
+# 6) Size checks
 IMG_SIZE="$(stat -c%s "$IMG_PATH")"
 SEED_SIZE="$(blockdev --getsize64 "$SEED_DEV")"
 log "Seed size: $SEED_SIZE bytes"
 log "Image size: $IMG_SIZE bytes"
-
-# Must be strictly smaller to avoid overrun into following partitions
 if [ "$IMG_SIZE" -ge "$SEED_SIZE" ]; then
-  fail "Image too large for ubuntu-seed; rebuild with larger -seed partition"
+    fail "Image too large for ubuntu-seed; aborting"
 fi
 
-# 7) Flash image to ubuntu-seed
-log "Flashing image to $SEED_DEV (dd bs=4M conv=fsync)…"
+# 7) Flash image
+log "Flashing $IMG_PATH to $SEED_DEV"
 dd if="$IMG_PATH" of="$SEED_DEV" bs=4M status=progress conv=fsync || fail "dd failed"
-log "Syncing..."
 sync
+log "Flashing complete"
 
-# 8) Cleanup and reboot
+# 8) Cleanup
 if mountpoint -q "$DATA_MNT"; then
-  umount "$DATA_MNT" || log "Warning: umount $DATA_MNT failed"
+    umount "$DATA_MNT" || log "Warning: umount $DATA_MNT failed"
 fi
-log "Migration complete; rebooting"
+
+log "Migration complete. Rebooting now."
 reboot -f
