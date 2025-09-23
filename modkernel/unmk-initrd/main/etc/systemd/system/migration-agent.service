@@ -1,7 +1,7 @@
 [Unit]
 Description=Migration Agent (initrd pre-pivot)
 DefaultDependencies=no
-After=initrd-root-fs.target
+After=snap-initramfs-mounts.service
 Before=initrd-switch-root.target
 
 [Service]
