@@ -1,5 +1,5 @@
 #!/bin/sh
-set -Eeu
+set -eu
 
 # ---------- config ----------
 LOG_TAG="[migration-agent]"
@@ -64,7 +64,11 @@ list_mounted_snaps() {
 }
 
 find_seeded_snap() {
-    compgen -G "$SEED_MNT/snaps/${SNAP_NAME}"'*.snap' 2>/dev/null | head -n1 || true
+    for f in "$SEED_MNT/snaps/${SNAP_NAME}"*.snap \
+             "$SEED_MNT/systems"/*/snaps/"${SNAP_NAME}"*.snap; do
+        [ -f "$f" ] && { echo "$f"; return 0; }
+    done
+    return 1
 }
 
 find_migration_conf() {
@@ -124,8 +128,8 @@ fi
 
 # 3. resolve block devices
 step "resolving block devices"
-SEED_DEV="$(blkid -L ubuntu-seed || true)"
-DATA_DEV="$(blkid -L ubuntu-data || true)"
+SEED_DEV="$(readlink -f /dev/disk/by-label/ubuntu-seed || true)"
+DATA_DEV="$(readlink -f /dev/disk/by-label/ubuntu-data || true)"
 [ -n "$SEED_DEV" ] || fail "device labeled ubuntu-seed not found"
 [ -n "$DATA_DEV" ] || fail "device labeled ubuntu-data not found"
 log "seed device: ${SEED_DEV}"
