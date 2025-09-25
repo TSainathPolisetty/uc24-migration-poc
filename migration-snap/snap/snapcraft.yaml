@@ -5,7 +5,7 @@ summary: Snap delivering UC24 image for brownfield upgrade
 description: |
   PoC snap to simulate a migration workflow using a UC24 image payload.
 
-grade: devel
+grade: dangerous
 confinement: devmode
 
 parts:
