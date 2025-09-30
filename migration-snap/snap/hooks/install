@@ -1,3 +1,12 @@
 #!/bin/sh
 set -e
-echo "[install] cascade-migration installed. Payload will be prepared on first run." >&2
+
+echo "[install] cascade-migration installed." >&2
+
+CONF_SRC="$SNAP/etc/migration.conf"
+CONF_DST="$SNAP_DATA/migration.conf"
+
+mkdir -p "$SNAP_DATA"
+cp -v "$CONF_SRC" "$CONF_DST"
+
+echo "[install] migration.conf copied to $CONF_DST" >&2
