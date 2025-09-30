@@ -89,6 +89,13 @@ sudo apt install -y squashfs-tools initramfs-tools-core systemd-ukify \
 
 #### 1. Unpack kernel snap
 
+Download the relevant kernel snap:
+
+```bash
+    snap download pc-kernel --channel=24/stable
+```
+
+
 ```bash
 ./tools/unpack-kernel.sh pc-kernel_<version>.snap
 ```
