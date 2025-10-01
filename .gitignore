@@ -23,6 +23,7 @@ __pycache__/
 *.tar
 *.tgz
 *.deb
+*.assert
 
 # Directories we don’t want in Git
 squashfs-root/
