@@ -6,14 +6,17 @@ LOG_FILE="/run/migration.log"
 CONSOLE="/dev/console"
 KMSG="/dev/kmsg"
 
+SNAP_NAME="cascade-migration"
 SEED_MNT="/run/mnt/ubuntu-seed"
 DATA_MNT=""
-SNAP_NAME="cascade-migration"
-IMG_PATH="/snap/${SNAP_NAME}/current/payloads/uc24.img"
+SNAP_MNT="/mnt/${SNAP_NAME}"
+SEED_DEV="/dev/vda2"
 # ----------------------------
 
+ts() { date -u +"%Y-%m-%d %H:%M:%S UTC"; }
+
 log() {
-    msg="$LOG_TAG $*"
+    msg="$LOG_TAG [$(ts)] $*"
     printf "*** .. %s .. !!!\n" "$msg" | tee -a "$LOG_FILE" > "$CONSOLE" 2>/dev/null || true
     [ -w "$KMSG" ] && printf "%s\n" "$msg" > "$KMSG" || true
 }
@@ -26,9 +29,9 @@ step() { step_i=$((step_i+1)); log "=== Step ${step_i}: $* ==="; }
 on_err() { fail "Unexpected error at line $1"; }
 trap 'on_err $LINENO' ERR
 
-log "=== Migration agent started at $(date -u) ==="
+log "=== Migration agent started ==="
 
-# --- Step 1: ensure ubuntu-data ---
+# --- Step 1: ensure ubuntu-data mount ---
 step "ensuring ubuntu-data mount"
 if grep -q " /run/mnt/ubuntu-data " /proc/mounts; then
     DATA_MNT="/run/mnt/ubuntu-data"
@@ -39,51 +42,60 @@ else
 fi
 log "using ubuntu-data at $DATA_MNT"
 
-# --- Step 2: locate config ---
-step "locating migration.conf"
-CONF_PATH="$DATA_MNT/var/snap/${SNAP_NAME}/current/migration.conf"
+# --- Adjust for UC layout (system-data/) ---
+BASE="$DATA_MNT/system-data"
+
+# --- Step 2: locate snap squashfs ---
+step "looking for sideloaded snap file"
+SNAP_DIR="$BASE/var/lib/snapd/snaps"
+SNAP_FILE="$(ls ${SNAP_DIR}/${SNAP_NAME}_*.snap 2>/dev/null | sort | tail -n1 || true)"
+[ -n "$SNAP_FILE" ] || fail "snap file not found in $SNAP_DIR"
+log "snap file: $SNAP_FILE"
+
+# --- Step 3: mount snap squashfs ---
+step "mounting snap squashfs"
+mkdir -p "$SNAP_MNT"
+mount -t squashfs -o ro,loop "$SNAP_FILE" "$SNAP_MNT" || fail "cannot mount $SNAP_FILE"
+log "mounted at $SNAP_MNT"
+
+# --- Step 4: config ---
+CONF_PATH="$SNAP_MNT/etc/migration.conf"
 [ -f "$CONF_PATH" ] || fail "migration.conf not found at $CONF_PATH"
 log "using config: $CONF_PATH"
 
-# --- Step 3: source config ---
-step "loading migration.conf"
-cat "$CONF_PATH" | while read -r line; do log "  conf: $line"; done
 . "$CONF_PATH"
+[ "${MIGRATE_CORE:-False}" = "True" ] || { step "MIGRATE_CORE not True; exiting"; exit 0; }
 
-[ "${MIGRATE_CORE:-False}" = "True" ] || { step "MIGRATE_CORE not True"; exit 0; }
+# --- Step 5: payload ---
+step "resolving payload image inside snap"
+IMG_PATH="$SNAP_MNT/payloads/uc24.img"
+[ -f "$IMG_PATH" ] || fail "payload image not found at $IMG_PATH"
+log "payload found: $IMG_PATH"
 
-# --- Step 4: resolve image path ---
-step "resolving image path"
-[ -f "$IMG_PATH" ] || fail "image not found: $IMG_PATH"
-log "image found: $IMG_PATH"
-
-# --- Step 5: block devices ---
-step "resolving block devices (hardcoded)"
-SEED_DEV="/dev/vda2"
-log "seed device: $SEED_DEV"
-
-# --- Step 6: validate size ---
-step "validating image size vs seed"
-stat "$IMG_PATH" 2>&1 | while read -r line; do log "  $line"; done
+# --- Step 6: check partition info (BusyBox safe) ---
+step "checking partition info from /proc and /sys"
+cat /proc/partitions | while read -r line; do log "    $line"; done
+SEED_SECTORS="$(cat /sys/block/vda/vda2/size)"
+SEED_SIZE=$((SEED_SECTORS * 512))
 IMG_SIZE="$(stat -c%s "$IMG_PATH")"
-SEED_SIZE="$(blockdev --getsize64 "$SEED_DEV")"
-log "seed size: $SEED_SIZE bytes"
 log "image size: $IMG_SIZE bytes"
-[ "$IMG_SIZE" -lt "$SEED_SIZE" ] || fail "image too large"
+log "seed size: $SEED_SIZE bytes"
+[ "$IMG_SIZE" -lt "$SEED_SIZE" ] || fail "image too large for $SEED_DEV"
 
-# --- Step 7: unmount seed ---
-step "unmounting seed before flashing"
+# --- Step 7: unmount seed if mounted ---
 if mountpoint -q "$SEED_MNT"; then
-    umount "$SEED_MNT" || fail "failed to unmount $SEED_MNT"
+    log "unmounting $SEED_MNT before flashing"
+    umount -l "$SEED_MNT" || fail "failed to unmount $SEED_MNT"
 fi
 
-# --- Step 8: flash ---
-step "flashing image to seed"
-dd bs=4M if="$IMG_PATH" of="$SEED_DEV" status=progress || fail "dd failed"
+# --- Step 8: flash with cat ---
+step "flashing image with cat (no dd available)"
+log "running: cat $IMG_PATH > $SEED_DEV"
+cat "$IMG_PATH" > "$SEED_DEV" || fail "cat copy failed"
 sync
 log "flashing complete"
 
 # --- Step 9: finish ---
 step "migration complete, rebooting"
-log "=== Migration agent finished at $(date -u) ==="
+log "=== Migration agent finished ==="
 reboot -f
