@@ -89,7 +89,7 @@ if mountpoint -q "$SEED_MNT"; then
 fi
 
 # --- Step 8: flash with cat ---
-step "flashing image with cat (no dd available)"
+step "flashing image with cat (no dd available on minimal Busybox)"
 log "running: cat $IMG_PATH > $SEED_DEV"
 cat "$IMG_PATH" > "$SEED_DEV" || fail "cat copy failed"
 sync
