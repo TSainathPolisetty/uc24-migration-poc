@@ -21,10 +21,20 @@ migration-snap/
 ### Build
 ```bash
 cd migration-snap
-snapcraft --use-lxd
+mkdir payloads && cd payloads
+wget http://cdimage.ubuntu.com/ubuntu-core/24/stable/current/ubuntu-core-24-amd64.img.xz
+unxz ubuntu-core-24-amd64.img.xz
+cd ../
+snapcraft
+PORT=<PORT>
+SOURCE="./cascade-migration_0.1_amd64.snap"
+USER="<USERNAME>"
+HOST="localhost"
+DEST="/home/<USERNAME>"
+scp -P "$PORT" "$SOURCE" "$USER@$HOST:$DEST"
 ````
 
-### Install on device
+### Install inside QEMU (Running the image with modified seed partition)
 
 ```bash
 snap install --dangerous cascade-migration_0.1_amd64.snap
@@ -32,7 +42,6 @@ snap install --dangerous cascade-migration_0.1_amd64.snap
 
 During installation:
 
-* UC24 image payload is copied into `$SNAP_DATA/payloads/` and uncompressed.
 * Static config (`migration.conf`) is copied into `$SNAP_DATA/migration.conf`.
 
 ---
@@ -61,6 +70,9 @@ After unpacking a kernel snap (see **Tools**), copy these into the unpacked init
 cp initramfs/migrate.sh modkernel/initrd-work/unpacked/main/bin/
 cp initramfs/migrate.service modkernel/initrd-work/unpacked/main/lib/systemd/system/
 chmod +x modkernel/initrd-work/unpacked/main/bin/migrate.sh
+ln -s /lib/systemd/system/migrate.service \
+      modkernel/initrd-work/unpacked/main/etc/systemd/system/sysinit.target.wants/migrate.service
+
 ```
 
 These will then be included when the kernel snap is rebuilt.
