@@ -68,9 +68,9 @@ After unpacking a kernel snap (see **Tools**), copy these into the unpacked init
 
 ```bash
 cp initramfs/migrate.sh modkernel/initrd-work/unpacked/main/bin/
-cp initramfs/migrate.service modkernel/initrd-work/unpacked/main/lib/systemd/system/
+cp initramfs/migrate.service modkernel/initrd-work/unpacked/main/etc/systemd/system/
 chmod +x modkernel/initrd-work/unpacked/main/bin/migrate.sh
-ln -s /lib/systemd/system/migrate.service \
+ln -s /etc/systemd/system/migrate.service \
       modkernel/initrd-work/unpacked/main/etc/systemd/system/sysinit.target.wants/migrate.service
 
 ```
