@@ -4,6 +4,7 @@ DefaultDependencies=no
 After=initrd-root-fs.target snap-initramfs-mounts.service
 Before=initrd-cleanup.service
 Requires=initrd-root-fs.target
+Conflicts=initrd-switch-root.target
 
 [Service]
 Type=oneshot
