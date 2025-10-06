@@ -1,101 +1,91 @@
 #!/bin/sh
 set -eu
-# ---------- config ----------
 LOG_TAG="[migration-agent]"
 LOG_FILE="/run/migration.log"
 CONSOLE="/dev/console"
 KMSG="/dev/kmsg"
 
 SNAP_NAME="cascade-migration"
-SEED_MNT="/run/mnt/ubuntu-seed"
-DATA_MNT=""
 SNAP_MNT="/mnt/${SNAP_NAME}"
-SEED_DEV="/dev/vda2"
-# ----------------------------
+DISK_DEV="/dev/vda"
 
 ts() { date -u +"%Y-%m-%d %H:%M:%S UTC"; }
-
 log() {
-    msg="$LOG_TAG [$(ts)] $*"
-    printf "*** .. %s .. !!!\n" "$msg" | tee -a "$LOG_FILE" > "$CONSOLE" 2>/dev/null || true
-    [ -w "$KMSG" ] && printf "%s\n" "$msg" > "$KMSG" || true
+  msg="$LOG_TAG [$(ts)] $*"
+  printf "*** .. %s .. !!!\n" "$msg" | tee -a "$LOG_FILE" > "$CONSOLE" 2>/dev/null || true
+  [ -w "$KMSG" ] && printf "%s\n" "$msg" > "$KMSG" || true
 }
-
 fail() { log "[ERROR] $*"; exit 1; }
-
 step_i=0
 step() { step_i=$((step_i+1)); log "=== Step ${step_i}: $* ==="; }
 
-on_err() { fail "Unexpected error at line $1"; }
-trap 'on_err $LINENO' ERR
-
 log "=== Migration agent started ==="
 
-# --- Step 1: ensure ubuntu-data mount ---
+# --- Step 1: locate ubuntu-data mount ---
 step "ensuring ubuntu-data mount"
 if grep -q " /run/mnt/ubuntu-data " /proc/mounts; then
-    DATA_MNT="/run/mnt/ubuntu-data"
+  DATA_MNT="/run/mnt/ubuntu-data"
 elif grep -q " /sysroot/writable " /proc/mounts; then
-    DATA_MNT="/sysroot/writable"
+  DATA_MNT="/sysroot/writable"
 else
-    fail "ubuntu-data not mounted yet, cannot continue"
+  fail "ubuntu-data not mounted"
 fi
 log "using ubuntu-data at $DATA_MNT"
-
-# --- Adjust for UC layout (system-data/) ---
 BASE="$DATA_MNT/system-data"
 
-# --- Step 2: locate snap squashfs ---
-step "looking for sideloaded snap file"
-SNAP_DIR="$BASE/var/lib/snapd/snaps"
-SNAP_FILE="$(ls ${SNAP_DIR}/${SNAP_NAME}_*.snap 2>/dev/null | sort | tail -n1 || true)"
-[ -n "$SNAP_FILE" ] || fail "snap file not found in $SNAP_DIR"
-log "snap file: $SNAP_FILE"
-
-# --- Step 3: mount snap squashfs ---
-step "mounting snap squashfs"
+# --- Step 2: find and mount snap ---
+step "locating sideloaded snap"
+SNAP_FILE="$(ls ${BASE}/var/lib/snapd/snaps/${SNAP_NAME}_*.snap 2>/dev/null | sort | tail -n1 || true)"
+[ -n "$SNAP_FILE" ] || fail "no snap found"
 mkdir -p "$SNAP_MNT"
-mount -t squashfs -o ro,loop "$SNAP_FILE" "$SNAP_MNT" || fail "cannot mount $SNAP_FILE"
-log "mounted at $SNAP_MNT"
+mount -t squashfs -o ro,loop "$SNAP_FILE" "$SNAP_MNT" || fail "cannot mount snap"
+log "mounted snap at $SNAP_MNT"
 
-# --- Step 4: config ---
-CONF_PATH="$SNAP_MNT/etc/migration.conf"
-[ -f "$CONF_PATH" ] || fail "migration.conf not found at $CONF_PATH"
-log "using config: $CONF_PATH"
-
-. "$CONF_PATH"
-[ "${MIGRATE_CORE:-False}" = "True" ] || { step "MIGRATE_CORE not True; exiting"; exit 0; }
-
-# --- Step 5: payload ---
-step "resolving payload image inside snap"
+# --- Step 3: payload image ---
 IMG_PATH="$SNAP_MNT/payloads/uc24.img"
-[ -f "$IMG_PATH" ] || fail "payload image not found at $IMG_PATH"
-log "payload found: $IMG_PATH"
-
-# --- Step 6: check partition info (BusyBox safe) ---
-step "checking partition info from /proc and /sys"
-cat /proc/partitions | while read -r line; do log "    $line"; done
-SEED_SECTORS="$(cat /sys/block/vda/vda2/size)"
-SEED_SIZE=$((SEED_SECTORS * 512))
+[ -f "$IMG_PATH" ] || fail "no payload at $IMG_PATH"
 IMG_SIZE="$(stat -c%s "$IMG_PATH")"
-log "image size: $IMG_SIZE bytes"
-log "seed size: $SEED_SIZE bytes"
-[ "$IMG_SIZE" -lt "$SEED_SIZE" ] || fail "image too large for $SEED_DEV"
+log "payload image: $IMG_PATH ($IMG_SIZE bytes)"
 
-# --- Step 7: unmount seed if mounted ---
-if mountpoint -q "$SEED_MNT"; then
-    log "unmounting $SEED_MNT before flashing"
-    umount -l "$SEED_MNT" || fail "failed to unmount $SEED_MNT"
-fi
+# --- Step 3.5: unmount unnecessary partitions and snaps by PARTNAME ---
+step "unmounting non-data partitions and snaps"
 
-# --- Step 8: flash with cat ---
-step "flashing image with cat (no dd available on minimal Busybox)"
-log "running: cat $IMG_PATH > $SEED_DEV"
-cat "$IMG_PATH" > "$SEED_DEV" || fail "cat copy failed"
+for dev in /dev/vda*; do
+  [ -b "$dev" ] || continue
+  sysbase="/sys/class/block/$(basename $dev)"
+  [ -f "$sysbase/uevent" ] || continue
+  label="$(grep '^PARTNAME=' "$sysbase/uevent" | cut -d= -f2 || true)"
+  case "$label" in
+    ubuntu-seed|ubuntu-boot|ubuntu-save)
+      mp="$(awk -v d="$dev" '$1==d {print $2}' /proc/mounts)"
+      if [ -n "$mp" ]; then
+        umount "$dev" || log "warning: failed to unmount $label ($dev)"
+      fi
+      ;;
+    ubuntu-data)
+      log "keeping ubuntu-data mounted ($dev)"
+      ;;
+  esac
+done
+
+# Unmount all snaps except migration snap
+for mp in $(awk '$2 ~ /^\/snap\// {print $2}' /proc/mounts); do
+  case "$mp" in
+    $SNAP_MNT) log "keeping migration snap mounted at $SNAP_MNT";;
+    *) umount "$mp" || log "warning: failed to unmount $mp";;
+  esac
+done
+
+sync
+log "finished unmounting by PARTNAME; only ubuntu-data and migration snap remain"
+
+# --- Step 4: flash whole block device with dd ---
+step "flashing image to $DISK_DEV"
+log "starting: dd if=$IMG_PATH of=$DISK_DEV bs=4M conv=fsync status=progress"
+dd if="$IMG_PATH" of="$DISK_DEV" bs=4M conv=fsync status=progress || fail "dd failed"
 sync
 log "flashing complete"
 
-# --- Step 9: finish ---
-step "migration complete, rebooting"
-log "=== Migration agent finished ==="
+# --- Step 5: reboot ---
+step "rebooting"
 reboot -f
