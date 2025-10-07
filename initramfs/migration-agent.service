@@ -1,22 +1,20 @@
 [Unit]
-Description=Migration Agent (initrd pre-pivot)
+Description=Migration Agent (run before initrd-cleanup)
 DefaultDependencies=no
-After=snap-initramfs-mounts.service
-Before=initrd-switch-root.target
+After=initrd-root-fs.target snap-initramfs-mounts.service
+Before=initrd-cleanup.service
+Requires=initrd-root-fs.target
 
 [Service]
 Type=oneshot
 ExecStart=/bin/sh -c '\
   echo "[migration-agent.service] Starting at $(date)" | tee -a /run/migration-agent.service.log; \
-  if [ ! -r /bin/migration-agent.sh ]; then \
-    echo "[migration-agent.service] ERROR: /bin/migration-agent.sh not found or not readable" | tee -a /run/migration-agent.service.log; \
-    exit 1; \
-  fi; \
   /bin/migration-agent.sh 2>&1 | tee -a /run/migration-agent.service.log; \
   echo "[migration-agent.service] Finished at $(date)" | tee -a /run/migration-agent.service.log \
 '
 StandardOutput=journal+console
 StandardError=journal+console
+TimeoutSec=0
 
 [Install]
-WantedBy=initrd.target
+WantedBy=initrd-cleanup.service
