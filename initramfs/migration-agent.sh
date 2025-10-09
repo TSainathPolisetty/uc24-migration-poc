@@ -88,7 +88,7 @@ for dev in /dev/vda*; do
     ubuntu-seed|ubuntu-boot|ubuntu-save)
       mp="$(awk -v d="$dev" '$1==d {print $2}' /proc/mounts)"
       if [ -n "$mp" ]; then
-        umount "$dev" || log "warning: failed to unmount $label ($dev)"
+        systemd-mount --umount "$dev" || log "warning: failed to unmount $label ($dev)"
       fi
       ;;
     ubuntu-data)
@@ -101,7 +101,7 @@ done
 for mp in $(awk '$2 ~ /^\/snap\// {print $2}' /proc/mounts); do
   case "$mp" in
     $SNAP_MNT) log "keeping migration snap mounted at $SNAP_MNT";;
-    *) umount "$mp" || log "warning: failed to unmount $mp";;
+    *) systemd-mount --umount "$mp" || log "warning: failed to unmount $mp";;
   esac
 done
 
